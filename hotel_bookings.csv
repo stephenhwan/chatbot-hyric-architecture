@@ -1,0 +1,13 @@
+booking_id,adults,children,babies,market_segment,distribution_channel,customer_type,is_repeated_guest,previous_cancellations,previous_bookings_not_canceled,total_stay_nights,adr,required_car_parking_spaces,total_of_special_requests,deposit_type,is_canceled,reservation_status
+HB0001,2,0,0,Online TA,TA/TO,Transient,0,0,0,3,95.0,0,1,No Deposit,0,Check-Out
+HB0002,2,1,0,Online TA,TA/TO,Transient-Party,0,1,0,5,120.0,1,2,Non Refund,1,Canceled
+HB0003,1,0,0,Corporate,Corporate,Contract,1,0,4,2,110.0,1,0,No Deposit,0,Check-Out
+HB0004,2,2,0,Offline TA/TO,TA/TO,Transient-Party,0,0,0,7,80.0,0,3,Refundable,0,Check-Out
+HB0005,1,0,0,Direct,Direct,Transient,0,2,1,1,60.0,0,0,No Deposit,1,No-Show
+HB0006,2,0,1,Online TA,TA/TO,Transient-Party,1,0,3,4,150.0,1,1,Non Refund,0,Check-Out
+HB0007,2,0,0,Groups,TA/TO,Group,0,0,0,2,70.0,0,1,No Deposit,0,Check-Out
+HB0008,2,1,1,Direct,Direct,Transient-Party,0,0,0,6,130.0,1,2,Refundable,1,Canceled
+HB0009,1,0,0,Corporate,GDS,Contract,1,0,5,3,140.0,1,0,No Deposit,0,Check-Out
+HB0010,2,0,0,Online TA,TA/TO,Transient,0,3,0,2,75.0,0,0,Non Refund,1,Canceled
+HB0011,2,2,0,Offline TA/TO,TA/TO,Transient-Party,0,0,1,5,90.0,0,2,No Deposit,0,Check-Out
+HB0012,1,1,0,Direct,Direct,Transient-Party,0,0,0,3,85.0,0,1,Refundable,0,Check-Out
