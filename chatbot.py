@@ -1,16 +1,15 @@
-
 import json
 from typing import Any, Dict
 
 from tools import call_tool, TOOL_SCHEMAS
-from engine import BackendRouter, CURRENT_BACKEND, chat  # ← FIX: Import BackendRouter
+from engine import BackendRouter, CURRENT_BACKEND, chat
 
 validation_key = {
     "predict_is_canceled": {"adults", "children"},
     "predict_total_stay_nights": {"adults", "children"},
     "predict_deposit_type": {"adults", "children"},
-
 }
+
 
 def build_router_prompt(user_input: str) -> str:
     """Build system prompt for LLM router."""
@@ -38,36 +37,33 @@ def build_router_prompt(user_input: str) -> str:
        {{
          "mode": "tool_call",
          "tool": "predict_is_canceled" | "predict_total_stay_nights" | "predict_deposit_type" | "cancellation_rate",
-         "arguments": {{ ... }}
+         "arguments": {{ "adults": 2, "children": 1, "babies": 0, ... }}
        }}
 
-    Rules (VERY IMPORTANT):
+    CRITICAL RULES for tool arguments:
 
-    - ONLY call tools when the user is asking about HOTEL BOOKINGS or the hotel_booking.csv dataset:
-      * whether a booking will be canceled,
-      * how many nights a booking will stay,
-      * what deposit_type should be used,
-      * or the overall cancellation rate in the dataset.
+    - For prediction tools (predict_is_canceled, predict_total_stay_nights, predict_deposit_type):
+      * ALWAYS extract booking details from the user's question
+      * ALWAYS include "adults", "children", and "babies" in arguments (use 0 if not mentioned)
+      * Example: "2 adults 2 children stay 5 days" → {{"adults": 2, "children": 2, "babies": 0}}
+      * You can also include other fields like: adr, market_segment, distribution_channel, etc.
 
-    - For ALL OTHER questions (for example:
-      * questions about machine learning theory such as "what is regression vs classification",
-      * questions about definitions, concepts, general AI, etc.),
-      you MUST use:
-        "mode": "chat"
-      and provide a direct explanation in "answer".
+    - For cancellation_rate tool:
+      * No arguments needed, use empty object: "arguments": {{}}
 
-    - Do NOT output explanations, comments, or multiple JSON objects.
-      Output EXACTLY ONE JSON object, and nothing else.
+    General Rules:
+
+    - ONLY call tools when the user is asking about HOTEL BOOKINGS or the hotel_booking.csv dataset
+    - For general questions about ML theory, definitions, concepts: use "mode": "chat"
+    - Do NOT output explanations, comments, or multiple JSON objects
+    - Output EXACTLY ONE JSON object, and nothing else
     """
 
     return system_instructions + f"\n\nUser: {user_input}\nAssistant:"
 
 
 def parse_llm_response(text: str) -> Dict[str, Any]:
-    """
-    Parse LLM response to extract JSON.
-    Handles cases where model wraps JSON in explanation.
-    """
+
     # Try strict JSON parse first
     try:
         return json.loads(text)
@@ -80,7 +76,7 @@ def parse_llm_response(text: str) -> Dict[str, Any]:
 
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(text[start : end + 1])
+            return json.loads(text[start: end + 1])
         except json.JSONDecodeError:
             pass
 
@@ -90,40 +86,48 @@ def parse_llm_response(text: str) -> Dict[str, Any]:
         "answer": text or "LLM returned empty response."
     }
 
+
 def is_valid_tool_call(tool_name: str, arguments: Dict[str, Any]) -> bool:
-    # Tool không tồn tại
+    # Tool doesn't exist
     if tool_name not in TOOL_SCHEMAS:
+        print(f"[VALIDATION] Tool '{tool_name}' not found in TOOL_SCHEMAS")
         return False
 
-    # cancellation_rate: không cần args, cho qua
+    # cancellation_rate: no args needed
     if tool_name == "cancellation_rate":
         return True
 
-    # Các tool ML còn lại: cần ít nhất SOME key đặc trưng của booking
+    # For ML prediction tools: need valid booking data
     required_keys = validation_key.get(tool_name)
     if not required_keys:
+        print(f"[VALIDATION] No validation keys defined for '{tool_name}'")
         return False
 
     if not isinstance(arguments, dict):
+        print(f"[VALIDATION] Arguments is not a dict: {type(arguments)}")
         return False
 
-    # Nếu arguments rỗng, hoặc không có key nào trong required_keys → coi như invalid
+    # Check if at least ONE required key is present
     provided_keys = set(arguments.keys())
-    if not (provided_keys & required_keys):
+    has_required = bool(provided_keys & required_keys)
+
+    if not has_required:
+        print(f"[VALIDATION] Missing required keys. Expected one of {required_keys}, got {provided_keys}")
         return False
 
+    print(f"[VALIDATION] ✓ Tool '{tool_name}' validated successfully")
     return True
 
-def llm_route_and_call(user_input: str) -> str:
 
+def llm_route_and_call(user_input: str) -> str:
     prompt = build_router_prompt(user_input)
 
+    # Get LLM routing decision
     try:
-        # ✅ FIX: Use BackendRouter instead of direct Gemini call
         llm_response = BackendRouter.route(
             msg=prompt,
-            history=[],  # No conversation history for routing
-            backend=CURRENT_BACKEND  # "auto" by default
+            history=[],
+            backend=CURRENT_BACKEND
         )
     except Exception as e:
         return f"❌ All LLM backends failed: {e}"
@@ -131,6 +135,8 @@ def llm_route_and_call(user_input: str) -> str:
     # Parse LLM response
     obj = parse_llm_response(llm_response)
     mode = obj.get("mode")
+
+    print(f"[ROUTER] LLM Response: {obj}")  # Debug output
 
     # Handle chat mode
     if mode == "chat":
@@ -142,36 +148,41 @@ def llm_route_and_call(user_input: str) -> str:
         tool_name = obj.get("tool")
         arguments = obj.get("arguments") or {}
 
-        # 1) Validate tool-call dựa trên schema
+        print(f"[ROUTER] Tool: {tool_name}, Arguments: {arguments}")
+
+        # Validate tool call
         if not is_valid_tool_call(tool_name, arguments):
-            # => LLM định gọi tool nhưng arguments quá vô nghĩa
-            #    => fallback: coi như chat thường
+            print(f"[ROUTER] Tool call validation failed, falling back to chat")
             chat_answer, _ = chat(user_input)
             return chat_answer
 
-        # 2) Hợp lệ -> thực thi tool
+        # Execute tool
         try:
             result = call_tool(tool_name, arguments)
+            print(f"[ROUTER] Tool result: {result}")
         except Exception as e:
             return f"Error when calling tool {tool_name}: {e}"
 
+        # Generate natural language explanation
         explain_prompt = (
             "You are a hotel booking data analyst.\n"
             "The user asked the following question:\n"
-            f"\"{user_input}\"\n\n"
+            f'"{user_input}"\n\n'
             f"You ran an internal analysis tool named '{tool_name}' and got this result:\n"
             "-----\n"
             f"{result}\n"
             "-----\n\n"
             "Now, answer the user directly:\n"
-            "- List key numbers in bullet points.\n"
-            "- Then, give 1-2 lines of overall evaluation, focusing on key insights or trends.\n"
-            "- Be concise and friendly.\n"
+            "- Present key numbers clearly\n"
+            "- Give 1-2 lines of overall evaluation\n"
+            "- Be concise and friendly\n"
         )
 
         final_answer, _ = chat(explain_prompt)
         return final_answer
 
+    # Unknown mode
+    return "❌ LLM returned unknown mode. Please try again."
 
 
 def main():
